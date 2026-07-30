@@ -19,15 +19,38 @@ class Action:
     def format_url(self, path) -> str:
         return f'https://{self.host}/{path}'
 
+
     def login(self) -> dict:
         login_url = self.format_url('auth/login')
+
+        # 1. 确保请求头带有极简的浏览器标识和 Referer（极其关键！）
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': login_url
+        })
+
+        # 2. 先 GET 访问登录页，利用同一个 self.session 自动保存 Cookie
+        login_page_res = self.session.get(login_url, timeout=self.timeout, verify=False)
+
+        # 3. 提取 CSRF Token（适配多种常见的 HTML 标签写法）
+        html_text = login_page_res.text
+        token_match = re.search(r'name=["\']csrf_token["\']\s+value=["\']([^"\']+)["\']', html_text) or \
+                      re.search(r'csrf_token\s*=\s*["\']([^"\']+)["\']', html_text) or \
+                      re.search(r'data-csrf=["\']([^"\']+)["\']', html_text)
+
         form_data = {
             'email': self.email,
             'passwd': self.passwd,
             'code': self.code
         }
-        return self.session.post(login_url, data=form_data,
-                                 timeout=self.timeout, verify=False).json()
+
+        # 4. 如果提取到了 csrf_token，填入参数中
+        if token_match:
+            form_data['csrf_token'] = token_match.group(1)
+            # 部分 SSR 面板后端接受的是 csrf_token 或 token，这里建议保持 csrf_token
+
+        # 5. 用同一个 self.session 提交 POST 请求（此时带上了第一步获得的 Cookie 和 Token）
+        return self.session.post(login_url, data=form_data, timeout=self.timeout, verify=False).json()
 
     def check_in(self) -> dict:
         check_in_url = self.format_url('user/checkin')
