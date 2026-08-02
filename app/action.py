@@ -1,6 +1,7 @@
 import re
 import json
 import hashlib
+import base64
 from typing import Tuple
 
 import requests
@@ -9,27 +10,41 @@ import urllib3
 urllib3.disable_warnings()
 
 
-def solve_altcha_challenge(challenge: str, salt: str, algorithm: str = 'SHA-256', maxnumber: int = 100000) -> str:
+def solve_altcha_challenge(challenge: str, salt: str, algorithm: str = 'SHA-256', maxnumber: int = 100000) -> dict:
     """
     解决 Altcha 工作量证明验证码
-    正确算法：SHA256(salt + number)
-    找到一个数字 N，使得 SHA256(salt + N) 的哈希有足够的前导零
-    
-    注意：由于 Altcha 可能有时间限制，此函数应尽快执行
+    正确算法：找到 number 使得 SHA256(salt + number) == challenge
+    返回完整的 Altcha 对象（包含 algorithm, challenge, number, salt, signature, took）
     """
-    # 尝试难度 1-4，快速找到任何解决方案
-    for difficulty in range(1, 5):
-        target_prefix = '0' * difficulty
-        
-        for number in range(maxnumber):
-            if algorithm.upper() == 'SHA-256':
-                data = f"{salt}{number}".encode()
-                result = hashlib.sha256(data).hexdigest()
-                
-                if result.startswith(target_prefix):
-                    return str(number)
+    import time
+    start = time.time()
     
-    return str(0)
+    for number in range(maxnumber):
+        if algorithm.upper() == 'SHA-256':
+            data = f"{salt}{number}".encode()
+            result = hashlib.sha256(data).hexdigest()
+            
+            if result == challenge:
+                took = int((time.time() - start) * 1000)  # 毫秒
+                return {
+                    'algorithm': algorithm,
+                    'challenge': challenge,
+                    'number': number,
+                    'salt': salt,
+                    'signature': '',  # 这个由服务器提供，我们不修改
+                    'took': took
+                }
+    
+    # 如果找不到，返回默认值
+    took = int((time.time() - start) * 1000)
+    return {
+        'algorithm': algorithm,
+        'challenge': challenge,
+        'number': 0,
+        'salt': salt,
+        'signature': '',
+        'took': took
+    }
 
 
 class Action:
@@ -48,69 +63,69 @@ class Action:
     def login(self) -> dict:
         login_url = self.format_url('auth/login')
 
-        # 1. 确保请求头带有浏览器标识
+        # 1. 设置请求头
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+            'X-Requested-With': 'XMLHttpRequest',
             'Referer': login_url
         })
 
-        # 2. 获取登录页面
+        # 2. 获取登录页面 (获取 CSRF Token)
         login_page_res = self.session.get(login_url, timeout=self.timeout, verify=False)
         html_text = login_page_res.text
         
         # 3. 提取 CSRF Token
-        token_match = re.search(r'name=["\']csrf_token["\']\s+value=["\']([^"\']+)["\']', html_text) or \
-                      re.search(r'csrf_token\s*=\s*["\']([^"\']+)["\']', html_text) or \
-                      re.search(r'data-csrf=["\']([^"\']+)["\']', html_text)
+        token_match = re.search(r'name=["\']csrf_token["\']\s+value=["\']([^"\']+)["\']', html_text)
+        csrf_token = token_match.group(1) if token_match else ''
 
-        # 4. 获取 Altcha Challenge 并求解
+        # 4. 获取 Altcha Challenge
         challenge_url = self.format_url('auth/altcha/challenge')
         challenge_res = self.session.get(challenge_url, timeout=self.timeout, verify=False)
-        altcha_data = challenge_res.json()
+        challenge_data = challenge_res.json()
         
+        # 5. 求解 Altcha
         altcha_solution = solve_altcha_challenge(
-            altcha_data.get('challenge', ''),
-            altcha_data.get('salt', ''),
-            altcha_data.get('algorithm', 'SHA-256'),
-            altcha_data.get('maxnumber', 100000)
+            challenge_data.get('challenge', ''),
+            challenge_data.get('salt', ''),
+            challenge_data.get('algorithm', 'SHA-256'),
+            challenge_data.get('maxnumber', 100000)
         )
 
-        # 5. 构建登录表单数据
-        # 根据网页JavaScript代码，应该提交以下字段：
-        # - email
-        # - passwd
-        # - code (两步验证码)
-        # - csrf_token
-        # - altcha (需要是正确的格式)
-        # - remember_me (可选)
-        # - device_fingerprint (需要生成)
-        
+        # 6. 生成设备指纹
+        device_fingerprint = hashlib.sha256(
+            f"{self.session.headers['User-Agent']}{self.email}".encode()
+        ).hexdigest()[:16]
+
+        # 7. 构建 Altcha JSON 对象 (包含 signature 来自服务器)
+        altcha_json = {
+            'algorithm': altcha_solution['algorithm'],
+            'challenge': altcha_solution['challenge'],
+            'number': altcha_solution['number'],
+            'salt': altcha_solution['salt'],
+            'signature': challenge_data.get('signature', ''),  # 来自服务器的 signature
+            'took': altcha_solution['took']
+        }
+
+        # 8. Base64 编码 Altcha JSON
+        altcha_encoded = base64.b64encode(
+            json.dumps(altcha_json).encode()
+        ).decode()
+
+        # 9. 构建登录表单数据
         form_data = {
             'email': self.email,
             'passwd': self.passwd,
-            'code': self.code,
+            'altcha': altcha_encoded,
+            'csrf_token': csrf_token,
+            'device_fingerprint': device_fingerprint,
+            'remember_me': 'week'
         }
+        
+        # 如果有两步验证码，添加它
+        if self.code:
+            form_data['code'] = self.code
 
-        # 6. 添加 CSRF Token
-        if token_match:
-            form_data['csrf_token'] = token_match.group(1)
-
-        # 7. 添加设备指纹（简单生成）
-        device_id = hashlib.sha256(
-            f"{self.session.headers['User-Agent']}{self.email}".encode()
-        ).hexdigest()[:32]
-        form_data['device_fingerprint'] = device_id
-
-        # 8. 尝试方式1：直接使用 Altcha challenge 对象作为 JSON
-        form_data['altcha'] = json.dumps({
-            'algorithm': altcha_data.get('algorithm'),
-            'challenge': altcha_data.get('challenge'),
-            'number': int(altcha_solution),
-            'salt': altcha_data.get('salt'),
-            'signature': altcha_data.get('signature')
-        })
-
-        # 9. 提交登录请求
+        # 10. 提交登录请求
         response = self.session.post(login_url, data=form_data, timeout=self.timeout, verify=False)
         result = response.json()
         
