@@ -22,7 +22,16 @@ try:
     passwd = core.get_input('passwd', required=True)
     secret = core.get_input('secret')
     host = core.get_input('host') or 'cordcloud.us,cordcloud.one,cordcloud.biz,c-cloud.xyz'
-    code = pyotp.TOTP(secret).now() if secret else ''
+    
+    # 生成 TOTP 码，需要时间同步
+    code = ''
+    if secret:
+        try:
+            totp = pyotp.TOTP(secret)
+            code = totp.now()
+            log.info(f'两步验证码已生成: {code}')
+        except Exception as e:
+            log.warning(f'生成两步验证码失败: {str(e)}，将尝试不使用验证码登录')
 
     # host 预处理：切分、过滤空值
     hosts = [h for h in host.split(',') if h]
