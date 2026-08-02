@@ -150,7 +150,7 @@ class Action:
             'passwd': self.passwd,
             'altcha': altcha_encoded,
             'csrf_token': csrf_token,
-            'device_fingerprint': device_fingerprint,
+            'device_fingerprint': device_fingerprint,  # 测试确认是device_fingerprint不同导致触发的陌生设备，要验证邮箱验证码 8bfbcde7e2019531d9703ceb66f5604b
             'remember_me': 'week'
         }
         
