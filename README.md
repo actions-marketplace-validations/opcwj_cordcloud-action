@@ -44,55 +44,6 @@ CordCloud 帐号自动续命。可配置 workflow 的触发条件为 `schedule`�
 
 ![](./images/2step_secret.png)
 
-## 本地调试
-
-本地运行 `main.py` 时，GitHub Actions 的输入参数是通过环境变量（如 `INPUT_EMAIL`）传入的，逐项设置比较麻烦。可以在当前目录下创建 `config.json`（参考 [`config.example.json`](./config.example.json)），程序会自动读取，无需再设置环境变量：
-
-```json
-{
-  "email": "your@email.com",
-  "passwd": "your_password",
-  "secret": "",
-  "host": "cordcloud.us,cordcloud.one,cordcloud.biz,c-cloud.xyz,cordc.xyz",
-  "imap_password": "",
-  "imap_timeout": 120
-}
-```
-
-参数优先级为：`config.json` > 环境变量。`config.json` 中可配置的参数与上方入参表一一对应（`imap_port`、`imap_timeout` 为数字类型）。也可通过环境变量 `CC_CONFIG` 指定配置文件路径。
-
-注意：
-
-- `config.json` 包含敏感信息，已被加入 `.gitignore`，请勿提交到仓库。
-- 在 GitHub Actions 环境中（`GITHUB_ACTIONS=true`）会**自动忽略**配置文件，只使用 Secrets 传入的参数，确保 CI 环境安全。
-
-## 登录与签到逻辑
-
-### 登录
-
-1. 访问登录页，从 HTML 中提取 `csrf_token`；
-2. 请求 Altcha 验证挑战，本地计算 `SHA256(salt + number) == challenge` 求解工作量证明，并 Base64 编码；
-3. 组装登录表单（`email`、`passwd`、`altcha`、`csrf_token`、`device_fingerprint`、`remember_me`，配置两步验证时再加 `code`），POST `/auth/login`；
-4. 响应 `ret == 1` 表示登录成功；`ret == 2` 表示服务器识别为陌生设备，需要邮箱二步验证。
-
-### 陌生设备验证（仅首次）
-
-CordCloud 根据 `device_fingerprint` 识别设备，本程序默认使用由邮箱生成的稳定指纹，因此只需验证一次。
-
-- 触发后服务器会向邮箱发送 6 位验证码并返回一个 `token`；
-- **配置了 `imap_password`（推荐）**：程序先记录邮箱当前最新邮件 UID 作为基线，再轮询 IMAP 邮箱，只接受 UID 大于基线（即验证触发后才新到）的邮件，避免误读历史邮件中的旧验证码；取到验证码后 POST `/auth/login/2fa/verify`（携带 `trust_device=1`）完成验证，一次运行即可登录 + 签到；
-- **未配置 `imap_password`**：程序保存 `token` 并退出，提示你将验证码填入 `device_code`（必要时同时填 `device_token`）后重新运行一次即可。验证成功后该指纹被永久信任，之后不会再触发。
-
-### 签到与流量
-
-- 登录成功后 POST `/user/checkin` 完成签到；
-- 返回“您似乎已经签到过了…”时视为已签到（成功）；
-- 随后解析用户中心页面，输出今日已用 / 过去已用 / 剩余流量。
-
-### 多站点容错
-
-`host` 支持以英文逗号传入多个站点，程序会依次尝试，任一站点成功即停止。登录失败（如帐号或密码错误、陌生设备验证未完成）会直接终止，不再尝试剩余站点，避免重复发送验证码导致作废；仅当网络异常等可重试错误时才继续尝试下一个站点。
-
 ## 简单配置示例
 
 ### 1. 创建 workflow
@@ -174,24 +125,20 @@ jobs:
 
 若 CordCloud Action 所需参数 `email`、`passwd` 等配置无误，CordCloud Action 将会根据触发条件（比如 `schedule`）自动运行，结果如下：
 
-![](./images/res.png)
+![img.png](images/img.png)
 
 ```bash
 Run opcwj/cordcloud-action@main
-  with:
-    email: ***
-    passwd: ***
-    secret: ***
-    host: cordcloud.us,cordcloud.one,cordcloud.biz,c-cloud.xyz,cordc.xyz
-/usr/bin/docker run --name bedb45d362fa3d3b44c97b19a4a9aff834955_0c4091 --label 5bedb4 --workdir /github/workspace --rm -e "INPUT_EMAIL" -e "INPUT_PASSWD" -e "INPUT_SECRET" -e "INPUT_HOST" -e "HOME" -e "GITHUB_JOB" -e "GITHUB_REF" -e "GITHUB_SHA" -e "GITHUB_REPOSITORY" -e "GITHUB_REPOSITORY_OWNER" -e "GITHUB_REPOSITORY_OWNER_ID" -e "GITHUB_RUN_ID" -e "GITHUB_RUN_NUMBER" -e "GITHUB_RETENTION_DAYS" -e "GITHUB_RUN_ATTEMPT" -e "GITHUB_REPOSITORY_ID" -e "GITHUB_ACTOR_ID" -e "GITHUB_ACTOR" -e "GITHUB_TRIGGERING_ACTOR" -e "GITHUB_WORKFLOW" -e "GITHUB_HEAD_REF" -e "GITHUB_BASE_REF" -e "GITHUB_EVENT_NAME" -e "GITHUB_SERVER_URL" -e "GITHUB_API_URL" -e "GITHUB_GRAPHQL_URL" -e "GITHUB_REF_NAME" -e "GITHUB_REF_PROTECTED" -e "GITHUB_REF_TYPE" -e "GITHUB_WORKFLOW_REF" -e "GITHUB_WORKFLOW_SHA" -e "GITHUB_WORKSPACE" -e "GITHUB_ACTION" -e "GITHUB_EVENT_PATH" -e "GITHUB_ACTION_REPOSITORY" -e "GITHUB_ACTION_REF" -e "GITHUB_PATH" -e "GITHUB_ENV" -e "GITHUB_STEP_SUMMARY" -e "GITHUB_STATE" -e "GITHUB_OUTPUT" -e "RUNNER_OS" -e "RUNNER_ARCH" -e "RUNNER_NAME" -e "RUNNER_ENVIRONMENT" -e "RUNNER_TOOL_CACHE" -e "RUNNER_TEMP" -e "RUNNER_WORKSPACE" -e "ACTIONS_RUNTIME_URL" -e "ACTIONS_RUNTIME_TOKEN" -e "ACTIONS_CACHE_URL" -e GITHUB_ACTIONS=true -e CI=true -v "/var/run/docker.sock":"/var/run/docker.sock" -v "/home/runner/work/_temp/_github_home":"/github/home" -v "/home/runner/work/_temp/_github_workflow":"/github/workflow" -v "/home/runner/work/_temp/_runner_file_commands":"/github/file_commands" -v "/home/runner/work/reading/reading":"/github/workspace" 5bedb4:5d362fa3d3b44c97b19a4a9aff834955
-[2023-08-10 10:20:33] 欢迎使用 CordCloud Action ❤
+/usr/bin/docker run --name b5e0a54ae907bd522408a85b68637aebe1906_e8c1e2 --label 1b5e0a --workdir /github/workspace ......
+[2026-08-03 15:47:33] 欢迎使用 CordCloud Action ❤
 
 📕 入门指南: https://github.com/marketplace/actions/cordcloud-action
 📣 由 opcwj 维护: https://github.com/opcwj
 
-[2023-08-10 10:20:33] 当前尝试 host：cordcloud.us
-[2023-08-10 10:20:33] 帐号登录成功
-[2023-08-10 10:20:33] 帐号签到：您似乎已经签到过了...
-[2023-08-10 10:20:34] 帐号流量使用情况：今日已用 121.22MB, 过去已用 162.02GB, 剩余流量 688.62GB
-[2023-08-10 10:20:34] CordCloud Action 成功结束运行！
+[2026-08-03 15:47:33] 当前尝试 host：cordcloud.us
+[2026-08-03 15:47:33] 开始正常登录流程
+[2026-08-03 15:47:36] 帐号登录成功
+[2026-08-03 15:47:36] 帐号签到：您似乎已经签到过了...
+[2026-08-03 15:47:39] 帐号流量使用情况：今日已用 2.17GB, 过去已用 7.26GB, 剩余流量 342.67GB
+[2026-08-03 15:47:39] CordCloud Action 成功结束运行！
 ```
