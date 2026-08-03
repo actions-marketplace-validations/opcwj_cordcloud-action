@@ -125,7 +125,7 @@ jobs:
 
 若 CordCloud Action 所需参数 `email`、`passwd` 等配置无误，CordCloud Action 将会根据触发条件（比如 `schedule`）自动运行，结果如下：
 
-![img.png](images/img.png)
+![img.png](images/res.png)
 
 ```bash
 Run opcwj/cordcloud-action@main
