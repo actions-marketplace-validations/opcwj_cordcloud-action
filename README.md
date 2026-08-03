@@ -177,7 +177,7 @@ jobs:
 ![](./images/res.png)
 
 ```bash
-Run yanglbme/cordcloud-action@main
+Run opcwj/cordcloud-action@main
   with:
     email: ***
     passwd: ***
@@ -187,7 +187,7 @@ Run yanglbme/cordcloud-action@main
 [2023-08-10 10:20:33] 欢迎使用 CordCloud Action ❤
 
 📕 入门指南: https://github.com/marketplace/actions/cordcloud-action
-📣 由 Yang Libin 维护: https://github.com/yanglbme
+📣 由 opcwj 维护: https://github.com/opcwj
 
 [2023-08-10 10:20:33] 当前尝试 host：cordcloud.us
 [2023-08-10 10:20:33] 帐号登录成功

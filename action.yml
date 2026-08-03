@@ -1,6 +1,6 @@
 name: "CordCloud Action"
 description: "用于 CordCloud 的 GitHub Action"
-author: "yanglbme"
+author: "opcwj"
 branding:
   icon: "check-circle"
   color: "gray-dark"
