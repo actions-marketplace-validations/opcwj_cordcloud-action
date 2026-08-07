@@ -1,0 +1,110 @@
+name: CordCloud 签到
+
+on:
+  schedule:
+    # cron 为 UTC 时间，每天 UTC 17 点运行（对应北京时间次日凌晨 1 点）
+    - cron: "0 17 * * *"
+  # 允许在 GitHub Actions 页面手动点击触发工作流
+  workflow_dispatch:
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    steps:
+      # ================== 第 1 次尝试 ==================
+      - name: 首次尝试签到
+        id: try1
+        continue-on-error: true # 捕获错误，防止首次执行失败导致工作流直接中断
+        uses: opcwj/cordcloud-action@main
+        with:
+          email: ${{ secrets.CC_EMAIL }}
+          passwd: ${{ secrets.CC_PASSWD }}
+          imap_password: ${{ secrets.CC_IMAP_PWD }}
+
+      # 若第 1 次失败，脚本挂起等待 2 分钟 (120 秒)
+      - name: ⏳ 首次失败，等待 2 分钟...
+        if: steps.try1.outcome == 'failure'
+        run: sleep 120
+
+      # ================== 第 2 次尝试 ==================
+      - name: 第 2 次尝试签到
+        id: try2
+        if: steps.try1.outcome == 'failure'
+        continue-on-error: true
+        uses: opcwj/cordcloud-action@main
+        with:
+          email: ${{ secrets.CC_EMAIL }}
+          passwd: ${{ secrets.CC_PASSWD }}
+          imap_password: ${{ secrets.CC_IMAP_PWD }}
+
+      # 若第 2 次失败，脚本挂起等待 5 分钟 (300 秒)，实现阶梯退避
+      - name: ⏳ 第 2 次失败，等待 5 分钟...
+        if: steps.try2.outcome == 'failure'
+        run: sleep 300
+
+      # ================== 第 3 次尝试 ==================
+      - name: 第 3 次尝试签到 (最终尝试)
+        id: try3
+        if: steps.try2.outcome == 'failure'
+        continue-on-error: true
+        uses: opcwj/cordcloud-action@main
+        with:
+          email: ${{ secrets.CC_EMAIL }}
+          passwd: ${{ secrets.CC_PASSWD }}
+          imap_password: ${{ secrets.CC_IMAP_PWD }}
+
+      # ================== 最终结果判定 ==================
+      # 如果第 3 次依然失败，则主动退出并抛出异常码 1，从而激活后续所有的 failure() 通知组件
+      - name: ⚠️ 检查最终状态
+        if: steps.try3.outcome == 'failure'
+        run: |
+          echo "经过 3 次阶梯重试，签到任务依然彻底失败！"
+          exit 1
+
+      # ================== 失败通知渠道集成 ==================
+
+      # 1. Server酱 失败提醒，可在server酱配置个人微信提醒 (原生 curl 方式，稳定可靠)
+      #
+      - name: Server酱 失败提醒
+        if: failure()
+        env:
+          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+        run: |
+          curl -X POST "https://sctapi.ftqq.com/${SERVERCHAN_SENDKEY}.send" \
+            -d title="❌ CordCloud 签到失败通知" \
+            -d desp="## CordCloud 自动签到多次重试后仍然失败！%0A%0A**可能原因：**%0A1. 账号/密码或 IMAP 授权码已失效%0A2. 目标网站服务器彻底宕机%0A3. 代理节点网络连接超时%0A%0A> 请前往 GitHub 查看运行日志进行排查。"
+
+      # 2. Telegram Bot 失败提醒
+      - name: Telegram Bot 失败提醒
+        if: failure()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}       # 接收通知的 Telegram 目标 (Chat ID)
+          token: ${{ secrets.TELEGRAM_TOKEN }} # Telegram 机器人令牌 (Bot Token)
+          message: |
+            ❌ CordCloud 自动签到失败！
+
+            经过 3 次阶梯式重试后任务仍未成功完成。
+            请登录 GitHub Actions 控制台查看详细的异常日志，并检查账号授权配置。
+
+      # 3. Email 邮件失败提醒 (通过 SMTP 发送)
+      - name: Email 邮件失败提醒
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.qq.com           # 您的 SMTP 服务器地址 (示例为 QQ 邮箱，网易请改用 smtp.163.com)
+          server_port: 465                      # SMTP 端口，SSL 加密通常为 465
+          username: ${{ secrets.MAIL_USERNAME }}# 发件人登录邮箱账号
+          password: ${{ secrets.MAIL_PASSWORD }}# 发件邮箱服务商提供的 SMTP 专用授权码 (注意：并非登录密码)
+          subject: ❌ CordCloud 自动签到失败警报 # 邮件主题
+          to: ${{ secrets.MAIL_TO }}            # 收件人邮箱地址 (可以是您自己的其他邮箱)
+          from: GitHub Actions 自动化服务        # 邮件显示的发送方名称
+          body: |
+            CordCloud 自动签到任务在执行 3 次阶梯重试后最终确认为失败。
+
+            技术故障可能原因排查建议：
+            - CordCloud 用户名/密码变更。
+            - 邮箱 IMAP 应用独立授权码已过期。
+            - CordCloud 服务器处于维护状态。
+
+            请及时前往 GitHub 存储库确认具体的报错信息。

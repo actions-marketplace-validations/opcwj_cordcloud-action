@@ -31,6 +31,8 @@ CordCloud 帐号自动续命。可配置 workflow 的触发条件为 `schedule`�
 - **全自动（推荐）**：配置 `imap_password`（邮箱 IMAP 密码/应用专用密码）后，触发陌生设备验证时会**自动从邮箱读取验证码并完成验证**，无需手动填写 `device_code`，一次运行即可完成登录+签到。注意：Gmail 等需使用应用专用密码，并确保邮箱已开启 IMAP 服务。
 最简配置可直接参考仓库中的 [`action-simple.yml`](./action-simple.yml)（只需配置邮箱、密码与 IMAP 密码即可全自动签到）！！！
 
+- 如需开启「失败重试 + 多渠道通知」（见下方[进阶章节](#进阶失败重试与多渠道通知可选)），修改仓库中的[action-with-retry-notify.yml](action-with-retry-notify.yml)模板，根据需要选择通知渠道即可。
+
 
 --- 
 **【签到有问题，或想深入了解的可继续阅读下文】**
@@ -142,3 +144,37 @@ Run opcwj/cordcloud-action@main
 [2026-08-03 15:47:39] 帐号流量使用情况：今日已用 2.17GB, 过去已用 7.26GB, 剩余流量 342.67GB
 [2026-08-03 15:47:39] CordCloud Action 成功结束运行！
 ```
+
+---
+
+## 进阶：失败重试与多渠道通知（可选）
+
+默认的 [`action-simple.yml`](./action-simple.yml) 每天定时执行一次签到，若某次恰好遇到网络抖动或站点故障，本次签到即宣告失败。若希望提高成功率，并在最终失败时收到提醒，可参考 [`action-with-retry-notify.yml`](action-with-retry-notify.yml)，它实现了：
+
+- **3 次阶梯式重试**：首次失败后等待 2 分钟重试，第 2 次失败后再等待 5 分钟重试，用于应对临时性网络故障；
+- **多渠道失败通知**：3 次均失败后，会主动 `exit 1` 使工作流失败，从而触发 `failure()` 通知组件，通过 **Server酱**、**Telegram Bot**、**Email (SMTP)** 三种渠道同时发送失败警报。
+
+将 `action-with-retry-notify.yml` 的内容复制到你的仓库 `.github/workflows/` 目录下（如 `cordcloud_auto_checkin.yml`）即可使用。
+
+> ⚠️ **注意**：重试机制适用于临时性网络异常。若登录失败原因是「陌生设备验证」（需要配置 `device_code`），重复重试会反复向邮箱发送验证码并使上一个验证码作废，请先按上文「陌生设备验证」章节处理完成后再开启重试。
+
+### 额外需要配置的 Secrets
+
+为确保通知渠道正常工作，请在 GitHub 仓库中依次进入 **Settings** -> **Secrets and variables** -> **Actions**，添加以下 Secrets：
+
+#### Server酱 相关
+
+* **`SERVERCHAN_SENDKEY`**：Server酱 的 SendKey（前往 [sct.ftqq.com](https://sct.ftqq.com/r/24923) 微信扫码登录后获得），用于 Server酱 推送失败提醒。
+
+#### Telegram 相关
+
+* **`TELEGRAM_TOKEN`**：通过向 `@BotFather` 申请获得的 Telegram Bot 令牌（例如 `123456789:ABCdefGHIjkl...`）。
+* **`TELEGRAM_TO`**：需要接收通知的 Telegram 用户的 Chat ID 或群组 ID（可使用 `@userinfobot` 获取个人的纯数字 ID）。
+
+#### 邮箱 (SMTP) 相关
+
+* **`MAIL_USERNAME`**：用作发件人的邮箱账号（例如 `your_email@qq.com`）。
+* **`MAIL_PASSWORD`**：发件邮箱提供的 **SMTP 专用授权码**。请登录邮箱服务商网页端，在“账户设置”或“安全设置”中开启 SMTP 服务并生成该授权码（注意：并非登录密码）。
+* **`MAIL_TO`**：用于接收通知提醒的目标邮箱地址（可以和发件人填一样的，实现自己给自己发邮件）。
+
+> 以上通知渠道均为**可选**。若只配置了部分渠道，请同步删除 `action-with-retry-notify.yml` 中对应的通知步骤，避免缺少 Secret 导致该步骤执行报错。
