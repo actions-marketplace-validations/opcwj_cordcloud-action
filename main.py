@@ -68,6 +68,7 @@ try:
     imap_user = get_input('imap_user')
     imap_password = get_input('imap_password')
     imap_timeout = int(get_input('imap_timeout') or 120)
+    cap_token = get_input('cap_token')
     host = get_input('host') or 'cordcloud.us,cordcloud.one,cordcloud.biz,c-cloud.xyz,cordc.xyz'
 
     # 生成 TOTP 码，需要时间同步
@@ -91,7 +92,7 @@ try:
                         device_fingerprint=device_fingerprint,
                         imap_host=imap_host, imap_port=imap_port,
                         imap_user=imap_user, imap_password=imap_password,
-                        imap_timeout=imap_timeout)
+                        imap_timeout=imap_timeout, cap_token=cap_token)
         try:
             # 登录
             res = action.login()

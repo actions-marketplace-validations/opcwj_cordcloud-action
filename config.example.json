@@ -6,6 +6,7 @@
   "device_code": "",
   "device_token": "",
   "device_fingerprint": "",
+  "cap_token": "",
   "imap_host": "",
   "imap_port": 993,
   "imap_user": "",

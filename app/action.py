@@ -54,7 +54,7 @@ class Action:
     def __init__(self, email: str, passwd: str, code: str = '', host: str = 'cordcloud.us',
                  device_code: str = '', device_token: str = '', device_fingerprint: str = '',
                  imap_host: str = '', imap_port: int = 993, imap_user: str = '', imap_password: str = '',
-                 imap_timeout: int = 120):
+                 imap_timeout: int = 120, cap_token: str = ''):
         self.email = email
         self.passwd = passwd
         self.code = code
@@ -64,6 +64,7 @@ class Action:
         self.device_code = device_code
         self.device_token = device_token
         self.device_fingerprint = self._build_fingerprint(device_fingerprint)
+        self.cap_token = cap_token
         self.imap_host = imap_host
         self.imap_port = imap_port
         self.imap_user = imap_user
@@ -335,7 +336,8 @@ class Action:
             'altcha': altcha_encoded,
             'csrf_token': csrf_token,
             'device_fingerprint': self.device_fingerprint,
-            'remember_me': 'week'
+            'remember_me': 'week',
+            'cap_token': self.cap_token
         }
 
         # 如果有两步验证码，添加它

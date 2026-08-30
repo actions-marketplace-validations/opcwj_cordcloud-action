@@ -23,6 +23,9 @@ inputs:
   device_fingerprint:
     description: "自定义稳定设备指纹（可复用已验证过的值）"
     required: false
+  cap_token:
+    description: "登录接口 cap_token 参数"
+    required: false
   imap_host:
     description: "用于自动读取验证码的 IMAP 服务器（留空则按邮箱域名自动识别）"
     required: false
