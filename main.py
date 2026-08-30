@@ -110,6 +110,28 @@ try:
             if res.get('ret') != 1 and '您似乎已经签到过' not in res.get('msg', ''):
                 log.set_failed(f'帐号签到失败：{res.get("msg")}')
             log.info(f'帐号签到：{res.get("msg")}')
+            
+            # 如果已经签到过，视为成功，直接退出循环
+            if '您似乎已经签到过' in res.get('msg', ''):
+                log.info('已签到视为签到成功')
+                # 尝试获取流量信息，失败不影响签到成功状态
+                try:
+                    traffic = res.get('trafficInfo') or {}
+                    if not all(k in traffic for k in ('todayUsedTraffic', 'lastUsedTraffic', 'unUsedTraffic')):
+                        account = action.info()
+                        if account:
+                            today_used, last_used, unused = account
+                            traffic = {
+                                'todayUsedTraffic': today_used,
+                                'lastUsedTraffic': last_used,
+                                'unUsedTraffic': unused
+                            }
+                    if traffic:
+                        log.info(
+                            f'帐号流量使用情况：今日已用 {traffic["todayUsedTraffic"]}, 过去已用 {traffic["lastUsedTraffic"]}, 剩余流量 {traffic["unUsedTraffic"]}')
+                except Exception as e:
+                    log.warning(f'获取流量信息失败：{e}')
+                break
 
             # 流量信息（签到成功或已签到都会输出）
             traffic = res.get('trafficInfo') or {}
