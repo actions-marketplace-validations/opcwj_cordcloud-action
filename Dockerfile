@@ -8,8 +8,9 @@ RUN pip install -r requirements.txt
 
 # 安装 playwright 和浏览器
 RUN pip install playwright
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# 设置浏览器安装路径并安装
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install chromium --with-deps
 
 COPY . /app
 
