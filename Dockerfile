@@ -1,18 +1,17 @@
-FROM python:3-slim AS builder
+FROM python:3-slim
 
-ENV VIRTUAL_ENV=/opt/venv
-RUN python3 -m venv $VIRTUAL_ENV
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-
-COPY . /app
 WORKDIR /app
 
 COPY requirements.txt .
 RUN python3 -m pip install --upgrade pip
-RUN pip install --target=/app -r requirements.txt
+RUN pip install -r requirements.txt
 
-FROM gcr.io/distroless/python3
-COPY --from=builder /app /app
-WORKDIR /app
+# 安装 playwright 和浏览器
+RUN pip install playwright
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
+COPY . /app
+
 ENV PYTHONPATH /app
 CMD ["/app/main.py"]

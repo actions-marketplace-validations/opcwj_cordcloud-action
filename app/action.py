@@ -13,41 +13,73 @@ from app import log
 urllib3.disable_warnings()
 
 
-def solve_altcha_challenge(challenge: str, salt: str, algorithm: str = 'SHA-256', maxnumber: int = 100000) -> dict:
+def solve_cap_challenge(login_url: str) -> str:
     """
-    解决 Altcha 工作量证明验证码
-    正确算法：找到 number 使得 SHA256(salt + number) == challenge
-    返回完整的 Altcha 对象（包含 algorithm, challenge, number, salt, signature, took）
+    使用 Playwright 模拟浏览器自动完成 Cap.js 验证并返回 cap_token
     """
-    import time
-    start = time.time()
-    
-    for number in range(maxnumber):
-        if algorithm.upper() == 'SHA-256':
-            data = f"{salt}{number}".encode()
-            result = hashlib.sha256(data).hexdigest()
+    try:
+        from playwright.sync_api import sync_playwright
+        
+        log.info(f'使用 Playwright 访问登录页面：{login_url}')
+        
+        with sync_playwright() as p:
+            # 启动无头浏览器
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
             
-            if result == challenge:
-                took = int((time.time() - start) * 1000)  # 毫秒
-                return {
-                    'algorithm': algorithm,
-                    'challenge': challenge,
-                    'number': number,
-                    'salt': salt,
-                    'signature': '',  # 这个由服务器提供，我们不修改
-                    'took': took
+            # 访问登录页面
+            page.goto(login_url)
+            
+            # 等待 Cap.js widget 加载
+            log.info('等待 Cap.js widget 加载...')
+            page.wait_for_selector('cap-widget', timeout=10000)
+            
+            # 等待 Cap.js 完成验证（最多等待 30 秒）
+            log.info('等待 Cap.js 自动完成验证...')
+            
+            # 监听 Cap.js 的 solve 事件，获取 cap_token
+            cap_token = None
+            
+            def handle_solve(event):
+                nonlocal cap_token
+                cap_token = event.detail.get('token', '')
+                log.info(f'Cap.js 验证完成，获取到 cap_token')
+            
+            # 注入脚本来监听 Cap.js 事件
+            page.evaluate('''() => {
+                const widget = document.querySelector('cap-widget');
+                if (widget) {
+                    widget.addEventListener('solve', (e) => {
+                        window.capToken = e.detail.token;
+                    });
                 }
-    
-    # 如果找不到，返回默认值
-    took = int((time.time() - start) * 1000)
-    return {
-        'algorithm': algorithm,
-        'challenge': challenge,
-        'number': 0,
-        'salt': salt,
-        'signature': '',
-        'took': took
-    }
+            }''')
+            
+            # 等待 cap_token 被设置
+            for i in range(30):  # 最多等待 30 秒
+                cap_token = page.evaluate('() => window.capToken')
+                if cap_token:
+                    break
+                import time
+                time.sleep(1)
+            
+            browser.close()
+            
+            if cap_token:
+                log.info(f'成功获取 cap_token: {cap_token[:20]}...')
+                return cap_token
+            else:
+                log.warning('Cap.js 验证超时，未能获取 cap_token')
+                return ''
+            
+    except ImportError:
+        log.warning('playwright 未安装，无法使用浏览器自动求解 Cap.js')
+        return ''
+    except Exception as e:
+        log.warning(f'Playwright 自动求解 Cap.js 异常：{e}')
+        import traceback
+        log.warning(traceback.format_exc())
+        return ''
 
 
 class Action:
@@ -290,10 +322,10 @@ class Action:
         return result
 
     def _prepare_login(self) -> dict:
-        """获取 CSRF Token、求解 Altcha、构建登录表单数据"""
+        """获取 CSRF Token、自动求解 Cap.js、构建登录表单数据"""
         login_url = self.format_url('auth/login')
 
-        # 1. 获取登录页面 (获取 CSRF Token)
+        # 1. 获取登录页面 (获取 CSRF Token 和 Cap.js API 端点)
         login_page_res = self.session.get(login_url, timeout=self.timeout, verify=False)
         html_text = login_page_res.text
 
@@ -301,44 +333,46 @@ class Action:
         token_match = re.search(r'name=["\']csrf_token["\']\s+value=["\']([^"\']+)["\']', html_text)
         csrf_token = token_match.group(1) if token_match else ''
 
-        # 3. 获取 Altcha Challenge
-        challenge_url = self.format_url('auth/altcha/challenge')
-        challenge_res = self.session.get(challenge_url, timeout=self.timeout, verify=False)
-        challenge_data = challenge_res.json()
+        # 3. 提取 Cap.js API 端点
+        cap_api_match = re.search(r'data-cap-api-endpoint=["\']([^"\']+)["\']', html_text)
+        cap_api_endpoint = cap_api_match.group(1) if cap_api_match else ''
+        
+        if cap_api_endpoint:
+            log.info(f'提取到 Cap.js API 端点：{cap_api_endpoint}')
+        else:
+            log.warning('未能在登录页面找到 Cap.js API 端点')
 
-        # 4. 求解 Altcha
-        altcha_solution = solve_altcha_challenge(
-            challenge_data.get('challenge', ''),
-            challenge_data.get('salt', ''),
-            challenge_data.get('algorithm', 'SHA-256'),
-            challenge_data.get('maxnumber', 100000)
-        )
+        # 4. 尝试自动获取 Cap.js challenge 并求解
+        cap_token = self.cap_token  # 优先使用配置中的 cap_token
+        
+        # 如果配置了 cap_token，给出警告（因为 cap_token 是一次性的）
+        if cap_token:
+            log.warning('配置文件中存在 cap_token，但 cap_token 是一次性的，可能已过期。建议清空配置文件中的 cap_token 让系统自动求解。')
+        
+        if not cap_token:
+            try:
+                # 使用 Playwright 自动求解获取 cap_token
+                cap_token = solve_cap_challenge(login_url)
+                
+                if cap_token:
+                    log.info('已自动求解 Cap.js 挑战获取 cap_token')
+                else:
+                    log.warning('Cap.js 自动求解失败，将尝试不带 cap_token 登录')
+            except Exception as e:
+                log.warning(f'获取 Cap.js challenge 失败：{e}，将尝试不带 cap_token 登录')
 
-        # 5. 构建 Altcha JSON 对象 (包含 signature 来自服务器)
-        altcha_json = {
-            'algorithm': altcha_solution['algorithm'],
-            'challenge': altcha_solution['challenge'],
-            'number': altcha_solution['number'],
-            'salt': altcha_solution['salt'],
-            'signature': challenge_data.get('signature', ''),  # 来自服务器的 signature
-            'took': altcha_solution['took']
-        }
-
-        # 6. Base64 编码 Altcha JSON
-        altcha_encoded = base64.b64encode(
-            json.dumps(altcha_json).encode()
-        ).decode()
-
-        # 7. 构建登录表单数据
+        # 5. 构建登录表单数据
         form_data = {
             'email': self.email,
             'passwd': self.passwd,
-            'altcha': altcha_encoded,
             'csrf_token': csrf_token,
             'device_fingerprint': self.device_fingerprint,
-            'remember_me': 'week',
-            'cap_token': self.cap_token
+            'remember_me': 'week'
         }
+
+        # 如果有 cap_token，添加它
+        if cap_token:
+            form_data['cap_token'] = cap_token
 
         # 如果有两步验证码，添加它
         if self.code:
