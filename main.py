@@ -12,7 +12,7 @@ action_info = {
     'action': 'CordCloud Action',
     'author': 'opcwj',
     'github': 'https://github.com/opcwj',
-    'marketplace': 'https://github.com/marketplace/actions/cordcloud-action'
+    'marketplace': 'https://github.com/marketplace/actions/cordc-action-modify-by-cordcloud-action'
 }
 
 welcome = Template('欢迎使用 $action ❤\n\n📕 入门指南: $marketplace\n📣 由 $author 维护: $github\n')
@@ -113,7 +113,6 @@ try:
             
             # 如果已经签到过，视为成功，直接退出循环
             if '您似乎已经签到过' in res.get('msg', ''):
-                log.info('已签到视为签到成功')
                 # 尝试获取流量信息，失败不影响签到成功状态
                 try:
                     traffic = res.get('trafficInfo') or {}
